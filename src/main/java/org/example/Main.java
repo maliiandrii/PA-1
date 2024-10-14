@@ -5,7 +5,7 @@ import java.util.*;
 
 public class Main {
 
-    private static final int CHUNK_SIZE = 100 * 1024 * 1024;
+    private static final int CHUNK_SIZE = 50 * 1024 * 1024;
     private static final int AVERAGE_NUMBER_SIZE = 11;
 
     public static void main(String[] args) throws IOException {
@@ -57,50 +57,79 @@ public class Main {
         try (BufferedReader reader = new BufferedReader(new FileReader(inputFile))) {
             String line;
             int counter = 0;
-            List<Integer> numbers = new ArrayList<>();
+            int[] numbers = new int[CHUNK_SIZE / Integer.BYTES];
+            int index = 0;
+
             while ((line = reader.readLine()) != null) {
-                numbers.add(Integer.parseInt(line));
-                if (numbers.size() * Integer.BYTES >= CHUNK_SIZE) {
+                numbers[index++] = Integer.parseInt(line);
+
+                if (index * Integer.BYTES >= CHUNK_SIZE) {
                     String chunkFile = "chunk_" + counter++ + ".txt";
-                    writeChunkToFile(numbers, chunkFile);
+                    writeChunkToFile(numbers, index, chunkFile);
                     chunkFiles.add(chunkFile);
-                    numbers.clear();
+                    index = 0;
                 }
             }
-            if (!numbers.isEmpty()) {
+
+            if (index > 0) {
                 String chunkFile = "chunk_" + counter + ".txt";
-                writeChunkToFile(numbers, chunkFile);
+                writeChunkToFile(numbers, index, chunkFile);
                 chunkFiles.add(chunkFile);
             }
         }
         return chunkFiles;
     }
 
-    private static void writeChunkToFile(List<Integer> numbers, String chunkFile) throws IOException {
+    private static void writeChunkToFile(int[] numbers, int length, String chunkFile) throws IOException {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(chunkFile))) {
-            for (int num : numbers) {
-                writer.write(num + "\n");
+            for (int i = 0; i < length; i++) {
+                writer.write(numbers[i] + "\n");
             }
         }
     }
 
     private static void sortChunk(String chunkFile) throws IOException {
-        List<Integer> numbers = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new FileReader(chunkFile))) {
+        final int MAX_NUMBERS_IN_MEMORY = 1000000;
+        List<Integer> numbers = new ArrayList<>(MAX_NUMBERS_IN_MEMORY);
+
+        File tempFile = new File(chunkFile + ".tmp");
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(chunkFile));
+             BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile))) {
+
             String line;
             while ((line = reader.readLine()) != null) {
                 numbers.add(Integer.parseInt(line));
+
+                if (numbers.size() >= MAX_NUMBERS_IN_MEMORY) {
+                    Collections.sort(numbers);
+                    for (int num : numbers) {
+                        writer.write(num + "\n");
+                    }
+                    numbers.clear();
+                }
+            }
+
+            if (!numbers.isEmpty()) {
+                Collections.sort(numbers);
+                for (int num : numbers) {
+                    writer.write(num + "\n");
+                }
             }
         }
 
-        Collections.sort(numbers);
+        File originalFile = new File(chunkFile);
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(chunkFile))) {
-            for (int num : numbers) {
-                writer.write(num + "\n");
+        if (originalFile.delete()) {
+            if (!tempFile.renameTo(originalFile)) {
+                throw new IOException("Could not rename temp file to original chunk file.");
             }
+        } else {
+            throw new IOException("Could not delete original chunk file.");
         }
     }
+
+
 
     private static void mergeSortedFiles(List<String> chunkFiles, String outputFile) throws IOException {
         PriorityQueue<FileEntry> queue = new PriorityQueue<>(Comparator.comparingInt(e -> e.value));
